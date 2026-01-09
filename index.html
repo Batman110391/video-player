@@ -44,6 +44,7 @@
     const loop = urlParams.get('loop') === '1' ? 1 : 0;
     const mute = urlParams.get('mute') === '1' ? 1 : 0;
     const controls = urlParams.get('controls') === '1' ? 1 : 0;
+    const startTime = parseFloat(urlParams.get('start') || '0.5');
     
     let player;
     let isPlayerReady = false;
@@ -91,11 +92,18 @@
           info: 'Player is ready'
         }), '*');
       }
-      
-      // Autoplay se richiesto
-      if (autoplay === 1) {
+
+      if (startTime > 0) {
+        console.log('Seeking to start time:', startTime);
+        event.target.seekTo(startTime, true);
+
+        setTimeout(() => {
+          event.target.playVideo();
+        }, 100);
+      }else if (autoplay === 1) {
         event.target.playVideo();
       }
+      
     }
     
     function onPlayerStateChange(event) {
