@@ -11,14 +11,12 @@
       padding: 0;
       box-sizing: border-box;
     }
-
     html, body {
       width: 100%;
       height: 100%;
       overflow: hidden;
       background: #000;
     }
-
     #player {
       position: absolute;
       top: 0;
@@ -30,63 +28,165 @@
   </style>
 </head>
 <body>
-  <iframe
-    id="player"
-    allowfullscreen
-    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-    referrerpolicy="strict-origin-when-cross-origin"
-  ></iframe>
-
+  <div id="player"></div>
+  
   <script>
-    (function() {
-      // Parse URL parameters
-      const urlParams = new URLSearchParams(window.location.search);
-
-      // Get video ID (required)
-      const videoId = urlParams.get('v');
-      if (!videoId) {
-        document.body.innerHTML = '<div style="color: white; padding: 20px; text-align: center;">Error: Missing video ID parameter (?v=VIDEO_ID)</div>';
+    // Parse URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const videoId = urlParams.get('v');
+    
+    if (!videoId) {
+      document.body.innerHTML = '<div style="color: white; padding: 20px; text-align: center;">Error: Missing video ID parameter (?v=VIDEO_ID)</div>';
+    }
+    
+    // Get optional parameters
+    const autoplay = urlParams.get('autoplay') === '1' ? 1 : 0;
+    const loop = urlParams.get('loop') === '1' ? 1 : 0;
+    const mute = urlParams.get('mute') === '1' ? 1 : 0;
+    const controls = urlParams.get('controls') === '1' ? 1 : 0;
+    
+    let player;
+    let isPlayerReady = false;
+    
+    // Carica YouTube IFrame API
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    
+    // Callback quando API è pronta
+    window.onYouTubeIframeAPIReady = function() {
+      console.log('YouTube API Ready');
+      
+      player = new YT.Player('player', {
+        videoId: videoId,
+        playerVars: {
+          autoplay: autoplay,
+          controls: controls,
+          loop: loop,
+          playlist: loop ? videoId : '',
+          mute: mute,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          enablejsapi: 1,
+          origin: window.location.origin
+        },
+        events: {
+          onReady: onPlayerReady,
+          onStateChange: onPlayerStateChange,
+          onError: onPlayerError
+        }
+      });
+    };
+    
+    function onPlayerReady(event) {
+      console.log('Player Ready');
+      isPlayerReady = true;
+      
+      // Notifica al parent che il player è pronto
+      if (window.parent !== window) {
+        window.parent.postMessage(JSON.stringify({
+          event: 'onReady',
+          info: 'Player is ready'
+        }), '*');
+      }
+      
+      // Autoplay se richiesto
+      if (autoplay === 1) {
+        event.target.playVideo();
+      }
+    }
+    
+    function onPlayerStateChange(event) {
+      console.log('Player State Changed:', event.data);
+      
+      // Notifica al parent il cambio di stato
+      if (window.parent !== window) {
+        window.parent.postMessage(JSON.stringify({
+          event: 'onStateChange',
+          info: event.data
+        }), '*');
+      }
+      
+      // Se video finito e loop non attivo, notifica
+      if (event.data === YT.PlayerState.ENDED && loop !== 1) {
+        if (window.parent !== window) {
+          window.parent.postMessage('ENDED', '*');
+        }
+      }
+    }
+    
+    function onPlayerError(event) {
+      console.error('Player Error:', event.data);
+      if (window.parent !== window) {
+        window.parent.postMessage(JSON.stringify({
+          event: 'onError',
+          info: event.data
+        }), '*');
+      }
+    }
+    
+    // Ascolta messaggi dal parent (React Native WebView)
+    window.addEventListener('message', function(event) {
+      if (!isPlayerReady || !player) {
+        console.log('Player not ready, ignoring command');
         return;
       }
-
-      // Get optional parameters with defaults
-      const autoplay = urlParams.get('autoplay') || '0';
-      const loop = urlParams.get('loop') || '0';
-      const mute = urlParams.get('mute') || '0';
-      const playlist = urlParams.get('playlist') || videoId;
-      const controls = urlParams.get('controls') || '1';
-      const rel = urlParams.get('rel') || '0';
-      const modestbranding = urlParams.get('modestbranding') || '1';
-      const playsinline = urlParams.get('playsinline') || '1';
-
-      // Build YouTube embed URL parameters
-      const embedParams = new URLSearchParams({
-        autoplay: autoplay,
-        controls: controls,
-        rel: rel,
-        modestbranding: modestbranding,
-        playsinline: playsinline,
-        enablejsapi: '1',
-        origin: window.location.origin
-      });
-
-      // Add loop and playlist if loop is enabled
-      if (loop === '1') {
-        embedParams.append('loop', '1');
-        embedParams.append('playlist', playlist);
+      
+      let data;
+      try {
+        data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      } catch (e) {
+        console.log('Cannot parse message:', event.data);
+        return;
       }
-
-      // Add mute if enabled
-      if (mute === '1') {
-        embedParams.append('mute', '1');
+      
+      console.log('Received command:', data);
+      
+      // Gestisci comandi
+      if (data.event === 'command') {
+        const func = data.func;
+        const args = data.args || [];
+        
+        switch(func) {
+          case 'playVideo':
+            console.log('Executing: playVideo');
+            player.playVideo();
+            break;
+          case 'pauseVideo':
+            console.log('Executing: pauseVideo');
+            player.pauseVideo();
+            break;
+          case 'stopVideo':
+            player.stopVideo();
+            break;
+          case 'mute':
+            player.mute();
+            break;
+          case 'unMute':
+            player.unMute();
+            break;
+          case 'setVolume':
+            if (args[0] !== undefined) {
+              player.setVolume(args[0]);
+            }
+            break;
+          case 'seekTo':
+            if (args[0] !== undefined) {
+              player.seekTo(args[0], true);
+            }
+            break;
+          default:
+            console.log('Unknown command:', func);
+        }
       }
-
-      // Construct final URL
-      const embedUrl = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?${embedParams.toString()}`;
-
-      // Set iframe src
-      document.getElementById('player').src = embedUrl;
-    })();
+    });
+    
+    // Per iOS: ascolta anche messaggi su window direttamente
+    if (window.webkit && window.webkit.messageHandlers) {
+      console.log('iOS WebKit detected');
+    }
   </script>
 </body>
 </html>
